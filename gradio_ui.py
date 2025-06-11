@@ -20,10 +20,12 @@ from dotenv import load_dotenv
 
 SQLITE_DB = Path("conversation_db/conversations.db")
 
+
 class AgentState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
     is_last_step: IsLastStep
     today_datetime: str
+    remaining_steps: int
 
 
 class GradioMCPInterface:
@@ -35,7 +37,7 @@ class GradioMCPInterface:
         self.debug_enabled: bool = True
         self.initialized: bool = False
         self._debug_logs: List[str] = []
-        self.current_model: str = ''
+        self.current_model: str = ""
         self.current_temperature: float = None
         load_dotenv()
         print(f"Initialized with config path: {config_path}")
@@ -48,11 +50,11 @@ class GradioMCPInterface:
                 if not await verify_python_installation():
                     raise RuntimeError("Failed to verify Python installation")
 
-                if not await verify_uvx_installation():
-                    raise RuntimeError("Failed to verify UVX installation")
+                # if not await verify_uvx_installation():
+                #     raise RuntimeError("Failed to verify UVX installation")
 
-                if not await verify_npx_installation():
-                    raise RuntimeError("Failed to verify NPX installation")
+                # if not await verify_npx_installation():
+                #     raise RuntimeError("Failed to verify NPX installation")
 
                 print("Standard MCP STDIO Commands Verified, initializing MCP manager...")
                 try:
@@ -91,21 +93,14 @@ class GradioMCPInterface:
         formatted_history = []
         for entry in history:
             if isinstance(entry, list) and len(entry) == 2:
-                formatted_history.extend([
-                    {"role": "user", "content": entry[0]},
-                    {"role": "assistant", "content": entry[1]}
-                ])
+                formatted_history.extend([{"role": "user", "content": entry[0]}, {"role": "assistant", "content": entry[1]}])
         return formatted_history
 
     def _init_llm(self, model: str = "gpt-4", temperature: float = 0) -> None:
         """Initialize or update LLM configuration"""
         try:
-            api_key = os.getenv('OPENAI_API_KEY')
-            self.llm = init_chat_model(
-                model=model,
-                temperature=temperature,
-                api_key=api_key
-            )
+            api_key = os.getenv("OPENAI_API_KEY")
+            self.llm = init_chat_model(model=model, temperature=temperature, api_key=api_key)
             self.current_model = model
             self.current_temperature = temperature
             if self.llm:
@@ -122,39 +117,33 @@ class GradioMCPInterface:
         tools = self.mcp_manager.get_all_langchain_tools()
         print(f"Initializing agent with {len(tools)} tools")
         if not tools:
-
             print("WARNING: No tools available for agent!")  # Debug print
             self._log("No tools available for agent", "WARNING")
             return
 
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", "You are a helpful AI assistant with access to various tools."),
-            ("placeholder", "{messages}")
-        ])
+        prompt = ChatPromptTemplate.from_messages(
+            [("system", "You are a helpful AI assistant with access to various tools."), ("placeholder", "{messages}")]
+        )
 
         self.agent_executor = create_react_agent(
             self.llm,
             tools,
             state_schema=AgentState,
-            state_modifier=prompt,
+            prompt=prompt,
         )
 
-    async def chat(
-            self,
-            message: str,
-            history: list,
-            model: str,
-            temperature: float,
-            debug_mode: bool
-    ) -> Generator:
+    async def chat(self, message: str, history: list, model: str, temperature: float, debug_mode: bool) -> Generator:
         """Handle chat messages and yield responses"""
         if not self.initialized:
             try:
                 await self.initialize()
             except Exception as e:
                 error_msg = f"Initialization failed: {str(e)}"
-                yield "", [{"role": "user", "content": message},
-                           {"role": "assistant", "content": error_msg}], self._format_debug_logs()
+                yield (
+                    "",
+                    [{"role": "user", "content": message}, {"role": "assistant", "content": error_msg}],
+                    self._format_debug_logs(),
+                )
                 return
 
         # Update configurations if changed
@@ -169,16 +158,19 @@ class GradioMCPInterface:
                 self._init_llm(model, temperature)
             except Exception as e:
                 error_msg = f"Failed to initialize LLM: {str(e)}"
-                yield "", [{"role": "user", "content": message},
-                           {"role": "assistant", "content": error_msg}], self._format_debug_logs()
+                yield (
+                    "",
+                    [{"role": "user", "content": message}, {"role": "assistant", "content": error_msg}],
+                    self._format_debug_logs(),
+                )
                 return
 
         # Initialize conversation manager
-        if not hasattr(self, 'conversation_manager'):
+        if not hasattr(self, "conversation_manager"):
             self.conversation_manager = ConversationManager(SQLITE_DB)
 
         # Handle conversation continuation
-        is_continuation = message.startswith('c ')
+        is_continuation = message.startswith("c ")
         if is_continuation:
             message = message[2:]
             thread_id = await self.conversation_manager.get_last_id()
@@ -195,13 +187,11 @@ class GradioMCPInterface:
 
         try:
             async for chunk in self.agent_executor.astream(
-                    input_messages,
-                    stream_mode=["messages", "values"],
-                    config={"configurable": {"thread_id": thread_id}}
+                input_messages, stream_mode=["messages", "values"], config={"configurable": {"thread_id": thread_id}}
             ):
                 if isinstance(chunk, tuple) and chunk[0] == "messages":
                     message_chunk = chunk[1][0]
-                    if hasattr(message_chunk, 'content'):
+                    if hasattr(message_chunk, "content"):
                         if isinstance(message_chunk, ToolMessage):
                             self._log(f"Tool Call ID: {message_chunk.tool_call_id}", "TOOL")
                             self._log(f"Tool Response: {message_chunk.content}", "TOOL")
@@ -210,21 +200,21 @@ class GradioMCPInterface:
                         else:
                             # Filter out raw tool output and any trailing characters
                             content = message_chunk.content
-                            if content.startswith('['):
+                            if content.startswith("["):
                                 # Find the end of the raw output by looking for ")]'"
                                 end_marker = "')]"
                                 if end_marker in content:
-                                    content = content[content.find(end_marker) + len(end_marker):]
+                                    content = content[content.find(end_marker) + len(end_marker) :]
                             current_response += content
                         new_history = formatted_history + [
                             {"role": "user", "content": message},
-                            {"role": "assistant", "content": current_response}
+                            {"role": "assistant", "content": current_response},
                         ]
                         # Use self._format_debug_logs() instead of getting from manager
                         yield "", new_history, self._format_debug_logs()
 
                 elif isinstance(chunk, tuple) and chunk[0] == "values":
-                    tool_message = chunk[1]['messages'][-1]
+                    tool_message = chunk[1]["messages"][-1]
                     if isinstance(tool_message, AIMessage) and tool_message.tool_calls:
                         if self.debug_enabled:
                             for tool_call in tool_message.tool_calls:
@@ -242,7 +232,7 @@ class GradioMCPInterface:
             self._log(error_msg, "ERROR")
             new_history = formatted_history + [
                 {"role": "user", "content": message},
-                {"role": "assistant", "content": error_msg}
+                {"role": "assistant", "content": error_msg},
             ]
             yield "", new_history, self._format_debug_logs()
             return
@@ -250,7 +240,7 @@ class GradioMCPInterface:
         # Final state
         final_history = formatted_history + [
             {"role": "user", "content": message},
-            {"role": "assistant", "content": current_response}
+            {"role": "assistant", "content": current_response},
         ]
         yield "", final_history, self._format_debug_logs()
 
@@ -269,12 +259,7 @@ async def create_ui(config_path: Path = Path("config.json")) -> gr.Interface:
 
         with gr.Row():
             with gr.Column(scale=2):
-                chatbot = gr.Chatbot(
-                    height=600,
-                    show_copy_button=True,
-                    container=True,
-                    type="messages"
-                )
+                chatbot = gr.Chatbot(height=600, show_copy_button=True, container=True, type="messages")
                 msg = gr.Textbox(
                     placeholder="Ask about whatever your heart desires...",
                     container=False,
@@ -282,24 +267,11 @@ async def create_ui(config_path: Path = Path("config.json")) -> gr.Interface:
                 )
                 with gr.Row():
                     with gr.Column(scale=1):
-                        model = gr.Dropdown(
-                            choices=["gpt-3.5-turbo", "gpt-4"],
-                            value="gpt-4",
-                            label="Model"
-                        )
+                        model = gr.Dropdown(choices=["gpt-3.5-turbo", "gpt-4"], value="gpt-4", label="Model")
                     with gr.Column(scale=1):
-                        temperature = gr.Slider(
-                            minimum=0,
-                            maximum=1,
-                            value=0,
-                            step=0.1,
-                            label="Temperature"
-                        )
+                        temperature = gr.Slider(minimum=0, maximum=1, value=0, step=0.1, label="Temperature")
                     with gr.Column(scale=1):
-                        debug_mode = gr.Checkbox(
-                            value=True,
-                            label="Debug Mode"
-                        )
+                        debug_mode = gr.Checkbox(value=True, label="Debug Mode")
 
             with gr.Column(scale=1):
                 debug_output = gr.Textbox(
@@ -308,7 +280,7 @@ async def create_ui(config_path: Path = Path("config.json")) -> gr.Interface:
                     lines=25,
                     max_lines=25,
                     container=True,
-                    interactive=False
+                    interactive=False,
                 )
 
         # Set up chat handler
@@ -316,12 +288,8 @@ async def create_ui(config_path: Path = Path("config.json")) -> gr.Interface:
             interface.chat,
             inputs=[msg, chatbot, model, temperature, debug_mode],
             outputs=[msg, chatbot, debug_output],
-            show_progress=True
-        ).then(
-            lambda: "",
-            None,
-            msg
-        )
+            show_progress=True,
+        ).then(lambda: "", None, msg)
 
     return demo
 
@@ -341,10 +309,10 @@ async def main():
         demo.queue()
 
         # Launch with specific host and port
-        await demo.launch(
+        demo.launch(
             server_name="127.0.0.1",  # Local only
             server_port=7860,
-            show_error=True
+            show_error=True,
         )
     except Exception as e:
         print(f"Failed to launch Gradio interface: {str(e)}")
@@ -353,7 +321,7 @@ async def main():
 
 if __name__ == "__main__":
     # Configure asyncio for Windows
-    if os.name == 'nt':
+    if os.name == "nt":
         # Use SelectEventLoop on Windows
         loop = asyncio.ProactorEventLoop()
         asyncio.set_event_loop(loop)

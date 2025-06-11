@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "remote-research": {
+      "url": "https://remote-research-1rqc.onrender.com/sse",
+      "disabled": false,
+      "type": "sse",
+      "autoApprove": []
+    }
+  }
+}
