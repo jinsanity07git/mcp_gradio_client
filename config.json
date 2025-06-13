@@ -1,10 +1,16 @@
 {
   "mcpServers": {
-    "remote-research": {
-      "url": "https://remote-research-1rqc.onrender.com/sse",
+    "od2chord": {
       "disabled": false,
-      "type": "sse",
-      "autoApprove": []
+      "timeout": 60,
+      "type": "stdio",
+      "command": "D:/apps/zj/mcp_client/mcp_gradio_client/venv/Scripts/python.exe",
+      "args": [
+        "D:/apps/zj/mcp_client/mcp_gradio_client/servers/gradio_mcp_server.py"
+      ],
+      "env": {
+        "PYTHONUNBUFFERED": "1"
+      }
     }
   }
 }
